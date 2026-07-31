@@ -50,6 +50,15 @@ uint8_t getBatAdcStatus(uint16_t adc) {
     return BAT_ADC_OK;
 }
 
+// --- Определение статуса напряжения батареи (12В — 3S Li-ion) ---
+uint8_t getBatVoltStatus(float voltage) {
+    if (voltage < 9.0f)  return BAT_VOLT_CRIT;   // критически низкое
+    if (voltage < 10.5f) return BAT_VOLT_LOW;    // низкое
+    if (voltage > 14.0f) return BAT_VOLT_OVER;   // критически высокое
+    if (voltage > 13.0f) return BAT_VOLT_HIGH;   // высокое
+    return BAT_VOLT_OK;                          // норма
+}
+
 // --- Медианный фильтр для АЦП (5 выборок) ---
 uint16_t readAdcFiltered(uint8_t pin) {
     uint16_t samples[ADC_FILTER_SAMPLES];
@@ -147,6 +156,12 @@ void loop() {
     uint8_t stBat1 = getBatAdcStatus(adc1);
     uint8_t stBat2 = getBatAdcStatus(adc2);
 
+    // --- Статусы напряжения батарей ---
+    float bat1V = bat1.voltage / 100.0f;
+    float bat2V = bat2.voltage / 100.0f;
+    uint8_t stVoltBat1 = getBatVoltStatus(bat1V);
+    uint8_t stVoltBat2 = getBatVoltStatus(bat2V);
+
     // --- Отправка CAN ---
     if (!canOk) return;
     byte sndStat;
@@ -157,6 +172,10 @@ void loop() {
     status.status_battery1  = stBat1;
     status.status_battery2  = stBat2;
     status.status_apu       = APU_ERR; // на Nano нет ВСУ → ошибка
+    status.volt_status_bat1 = stVoltBat1;
+    status.volt_status_bat2 = stVoltBat2;
+    status.reserved[0]      = 0;
+    status.reserved[1]      = 0;
 
     sndStat = sendCanFrame(CAN_ID_STATUS_DATA, status);
     if (sndStat != CAN_OK) {

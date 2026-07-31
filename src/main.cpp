@@ -22,6 +22,7 @@ INA226 ina226;
 // Формула: real_voltage = adc_value * (reference_voltage / 1023) * divider
 #define ADC_REFERENCE_VOLTAGE   5.0f
 #define BAT_ADC_DIVIDER_RATIO   2.0f  // делитель напряжения, если есть
+#define ADC_FILTER_SAMPLES      5     // количество выборок для медианного фильтра
 
 // --- Период отправки CAN ---
 #define CAN_TX_INTERVAL_MS  100
@@ -49,11 +50,41 @@ uint8_t getBatAdcStatus(uint16_t adc) {
     return BAT_ADC_OK;
 }
 
+// --- Медианный фильтр для АЦП (5 выборок) ---
+uint16_t readAdcFiltered(uint8_t pin) {
+    uint16_t samples[ADC_FILTER_SAMPLES];
+    for (uint8_t i = 0; i < ADC_FILTER_SAMPLES; i++) {
+        samples[i] = analogRead(pin);
+        delayMicroseconds(500);
+    }
+    // Сортировка вставками для малого массива
+    for (uint8_t i = 1; i < ADC_FILTER_SAMPLES; i++) {
+        uint16_t key = samples[i];
+        int8_t j = i - 1;
+        while (j >= 0 && samples[j] > key) {
+            samples[j + 1] = samples[j];
+            j--;
+        }
+        samples[j + 1] = key;
+    }
+    return samples[ADC_FILTER_SAMPLES / 2];
+}
 
+
+
+// --- Универсальная отправка CAN-кадра ---
+template<typename T>
+byte sendCanFrame(uint32_t id, const T& data) {
+    byte txBuf[8] = {0};
+    memcpy(txBuf, &data, sizeof(T));
+    return CAN.sendMsgBuf(id, 0, sizeof(T), txBuf);
+}
 
 void setup() {
     Serial.begin(115200);
-    while (!Serial) {}
+    // Ждём Serial максимум 3 секунды, чтобы не зависнуть без USB
+    uint32_t serialTimeout = millis();
+    while (!Serial && (millis() - serialTimeout < 3000)) {}
     Serial.println(F("Nano Back Sani Bike - CAN TX start"));
 
     // --- I2C: INA226 (шунт 0.1 Ом, макс. ток 0.8 А, адрес 0x40) ---
@@ -96,9 +127,9 @@ void loop() {
         cachedInaCurrent = 0.0f;
     }
 
-    // --- Чтение АЦП батарей (один раз за цикл) ---
-    uint16_t adc1 = analogRead(BAT1_ADC_PIN);
-    uint16_t adc2 = analogRead(BAT2_ADC_PIN);
+    // --- Чтение АЦП батарей с медианным фильтром ---
+    uint16_t adc1 = readAdcFiltered(BAT1_ADC_PIN);
+    uint16_t adc2 = readAdcFiltered(BAT2_ADC_PIN);
 
     // --- Подготовка данных ---
     MainLineData mainLine;
@@ -118,7 +149,6 @@ void loop() {
 
     // --- Отправка CAN ---
     if (!canOk) return;
-    byte txBuf[8];
     byte sndStat;
 
     // Status (все поля инициализированы)
@@ -128,36 +158,28 @@ void loop() {
     status.status_battery2  = stBat2;
     status.status_apu       = APU_ERR; // на Nano нет ВСУ → ошибка
 
-    memset(txBuf, 0, sizeof(txBuf));
-    memcpy(txBuf, &status, sizeof(StatusData));
-    sndStat = CAN.sendMsgBuf(CAN_ID_STATUS_DATA, 0, sizeof(StatusData), txBuf);
+    sndStat = sendCanFrame(CAN_ID_STATUS_DATA, status);
     if (sndStat != CAN_OK) {
         Serial.print(F("CAN send STATUS failed: "));
         Serial.println(sndStat);
     }
 
     // Main line
-    memset(txBuf, 0, sizeof(txBuf));
-    memcpy(txBuf, &mainLine, sizeof(MainLineData));
-    sndStat = CAN.sendMsgBuf(CAN_ID_MAIN_LINE_DATA, 0, sizeof(MainLineData), txBuf);
+    sndStat = sendCanFrame(CAN_ID_MAIN_LINE_DATA, mainLine);
     if (sndStat != CAN_OK) {
         Serial.print(F("CAN send MAIN_LINE failed: "));
         Serial.println(sndStat);
     }
 
     // Battery 1
-    memset(txBuf, 0, sizeof(txBuf));
-    memcpy(txBuf, &bat1, sizeof(Battery1Data));
-    sndStat = CAN.sendMsgBuf(CAN_ID_BATTERY1_DATA, 0, sizeof(Battery1Data), txBuf);
+    sndStat = sendCanFrame(CAN_ID_BATTERY1_DATA, bat1);
     if (sndStat != CAN_OK) {
         Serial.print(F("CAN send BAT1 failed: "));
         Serial.println(sndStat);
     }
 
     // Battery 2
-    memset(txBuf, 0, sizeof(txBuf));
-    memcpy(txBuf, &bat2, sizeof(Battery2Data));
-    sndStat = CAN.sendMsgBuf(CAN_ID_BATTERY2_DATA, 0, sizeof(Battery2Data), txBuf);
+    sndStat = sendCanFrame(CAN_ID_BATTERY2_DATA, bat2);
     if (sndStat != CAN_OK) {
         Serial.print(F("CAN send BAT2 failed: "));
         Serial.println(sndStat);

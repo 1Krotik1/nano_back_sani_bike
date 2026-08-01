@@ -46,7 +46,7 @@ uint8_t getIna226Status() {
 uint8_t getBatAdcStatus(uint16_t adc) {
     if (adc == 0) return BAT_ADC_ERR_OPEN;
     float v = adc * (ADC_REFERENCE_VOLTAGE / 1023.0f) * BAT_ADC_DIVIDER_RATIO;
-    if (v > 5.2f) return BAT_ADC_ERR_OVER;
+    if (v > 5.0f) return BAT_ADC_ERR_OVER;
     return BAT_ADC_OK;
 }
 

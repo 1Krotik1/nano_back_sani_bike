@@ -19,9 +19,8 @@ INA226 ina226;
 #define BAT2_ADC_PIN    A2
 
 // --- Калибровка АЦП (подставьте свои значения) ---
-// Формула: real_voltage = adc_value * (reference_voltage / 1023) * divider
+// Формула: real_voltage = adc_value * (reference_voltage / 1023)
 #define ADC_REFERENCE_VOLTAGE   5.0f
-#define BAT_ADC_DIVIDER_RATIO   2.0f  // делитель напряжения, если есть
 #define ADC_FILTER_SAMPLES      5     // количество выборок для медианного фильтра
 
 // --- Период отправки CAN ---
@@ -45,17 +44,15 @@ uint8_t getIna226Status() {
 
 uint8_t getBatAdcStatus(uint16_t adc) {
     if (adc == 0) return BAT_ADC_ERR_OPEN;
-    float v = adc * (ADC_REFERENCE_VOLTAGE / 1023.0f) * BAT_ADC_DIVIDER_RATIO;
-    if (v > 5.0f) return BAT_ADC_ERR_OVER;
+    float v = adc * (ADC_REFERENCE_VOLTAGE / 1023.0f);
+    if (v >= ADC_REFERENCE_VOLTAGE) return BAT_ADC_ERR_OVER;
     return BAT_ADC_OK;
 }
 
-// --- Определение статуса напряжения батареи (12В — 3S Li-ion) ---
+// --- Определение статуса напряжения батареи (5S Li-ion, без делителя, до 5В) ---
 uint8_t getBatVoltStatus(float voltage) {
-    if (voltage < 9.0f)  return BAT_VOLT_CRIT;   // критически низкое
-    if (voltage < 10.5f) return BAT_VOLT_LOW;    // низкое
-    if (voltage > 14.0f) return BAT_VOLT_OVER;   // критически высокое
-    if (voltage > 13.0f) return BAT_VOLT_HIGH;   // высокое
+    if (voltage < 2.5f)  return BAT_VOLT_CRIT;   // критически низкое
+    if (voltage < 3.0f)  return BAT_VOLT_LOW;    // низкое
     return BAT_VOLT_OK;                          // норма
 }
 
@@ -146,10 +143,10 @@ void loop() {
     mainLine.current = (uint16_t)(cachedInaCurrent * 100.0f);
 
     Battery1Data bat1;
-    bat1.voltage = (uint16_t)(adc1 * (ADC_REFERENCE_VOLTAGE / 1023.0f) * BAT_ADC_DIVIDER_RATIO * 100.0f);
+    bat1.voltage = (uint16_t)(adc1 * (ADC_REFERENCE_VOLTAGE / 1023.0f) * 100.0f);
 
     Battery2Data bat2;
-    bat2.voltage = (uint16_t)(adc2 * (ADC_REFERENCE_VOLTAGE / 1023.0f) * BAT_ADC_DIVIDER_RATIO * 100.0f);
+    bat2.voltage = (uint16_t)(adc2 * (ADC_REFERENCE_VOLTAGE / 1023.0f) * 100.0f);
 
     // --- Определение статусов (на уже считанных значениях) ---
     uint8_t stMain = getIna226Status();
